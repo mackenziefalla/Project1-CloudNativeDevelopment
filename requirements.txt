@@ -1,0 +1,12 @@
+# https://pypi.org/project/flask
+Flask==3.0.2
+
+# https://pypi.org/project/gunicorn
+gunicorn==21.2.0
+
+Flask==2.2.3
+google-cloud-storage==2.10.0
+
+flask
+google-cloud-storage
+gunicorn
