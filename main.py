@@ -1,5 +1,5 @@
 # This Code has been edited by Mackenzie Falla
-# Cloud Native Development
+# Cloud Native Development 
 # Skeleton given by Professor Ricardo De Andrade, I also looked to ChatGBT for help as well.
 
 """
@@ -59,58 +59,96 @@ def list_files():
             files.remove(file)
     return files
 """
+
 import os
-from flask import Flask, redirect, request, send_file
-from google.cloud import storage
+from flask import Flask, redirect, request, render_template_string, send_from_directory, url_for
+from werkzeug.utils import secure_filename
 
-os.makedirs('files', exist_ok = True)
-
+# Configure app
 app = Flask(__name__)
+app.config['UPLOAD_FOLDER'] = './files'
+os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
-# Google Cloud Storage Bucket Name
-BUCKET_NAME = 'project1-447922_cloudbuild'  # Replace with your actual bucket name
+ALLOWED_EXTENSIONS = {'jpeg', 'jpg'}
 
-def upload_to_gcs(file, bucket_name):
-    """Uploads a file to Google Cloud Storage."""
-    client = storage.Client()  # Authenticate using GOOGLE_APPLICATION_CREDENTIALS
-    bucket = client.bucket(bucket_name)
-    blob = bucket.blob(file.filename)  # Create a blob with the file's name
-    blob.upload_from_file(file)  # Upload the file
-    blob.make_public()  # Make the file publicly accessible
-    return blob.public_url  # Return the file's public URL
+def allowed_file(filename):
+    """Check if the file has an allowed extension."""
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def list_files(upload_folder):
+    """List all the files in the upload folder."""
+    return [f for f in os.listdir(upload_folder) if f.lower().endswith(('.jpeg', '.jpg'))]
+
+def save_file(file, upload_folder):
+    """Save the uploaded file to the specified folder."""
+    filename = secure_filename(file.filename)
+    file_path = os.path.join(upload_folder, filename)
+    file.save(file_path)
+
+def delete_file(filename, upload_folder):
+    """Delete a file from the specified folder."""
+    file_path = os.path.join(upload_folder, filename)
+    if os.path.exists(file_path):
+        os.remove(file_path)
+        return True
+    return False
 
 @app.route('/')
 def index():
-    """Home page with upload form."""
-    form_html = """
-    <form method="post" enctype="multipart/form-data" action="/upload">
-      <div>
-        <label for="file">Choose file to upload. (* Note only .jpg files):</label>
-        <input type="file" id="file" name="form_file" accept="image/jpeg"/>
-      </div>
-      <div>
-        <button>Submit</button>
-      </div>
-    </form>
+    """Home page with upload form and list of uploaded files."""
+    files = list_files(app.config['UPLOAD_FOLDER'])
+    index_html = """
+    <html>
+    <head><title>Upload Files</title></head>
+    <body>
+        <h1>Upload Image (JPEG only)</h1>
+        <form method="post" enctype="multipart/form-data" action="/upload">
+            <div>
+                <label for="file">Choose file to upload (* NOTE .jpg photos files ONLY*)</label>
+                <input type="file" id="file" name="form_file" accept="image/jpeg">
+            </div>
+            <div>
+                <button>Submit</button>
+            </div>
+        </form>
+
+        <h2>Uploaded Files:</h2>
+        <ul>
+        """
+    # Display list of files with view and delete options
+    for file in files:
+        index_html += f"<li>{file} - <a href='/files/{file}'>View</a> | <a href='/delete/{file}'>DELETE</a></li>"
+    index_html += """
+        </ul>
+    </body>
+    </html>
     """
-    return form_html
+    return index_html
 
 @app.route('/upload', methods=["POST"])
 def upload():
-    """Handles file upload and saves to GCS."""
-    if 'form_file' not in request.files:
-        return "No file part in the request", 400
-    
+    """Handles file upload and saves to the specified folder."""
     file = request.files['form_file']
-    if file.filename == '':
-        return "No selected file", 400
+    if file and allowed_file(file.filename):
+        save_file(file, app.config['UPLOAD_FOLDER'])
+        return redirect(url_for('index'))
+    return 'Invalid file type or upload failed', 400
 
-    # Upload file to GCS
-    file_url = upload_to_gcs(file, BUCKET_NAME)
-    return f"File successfully uploaded! <a href='{file_url}'>View file</a>"
+@app.route('/files/<filename>')
+def get_file(filename):
+    """Serves a file from the server."""
+    file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    if os.path.exists(file_path):
+        return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+    return 'File not found', 404
 
-if __name__ == "__main__":
-   # Development only: run "python main.py" and open http://localhost:8080
-   # When deploying to Cloud Run, a production-grade WSGI HTTP server,
-   # such as Gunicorn, will serve the app.
-   app.run(host="localhost", port=8080, debug=True)
+@app.route('/delete/<filename>')
+def delete(filename):
+    """Deletes a specific file from the server."""
+    if delete_file(filename, app.config['UPLOAD_FOLDER']):
+        return redirect(url_for('index'))
+    return 'File not found', 404
+
+if __name__ == '__main__':
+    app.run(debug=True)
+
