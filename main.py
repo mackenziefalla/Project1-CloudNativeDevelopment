@@ -85,7 +85,7 @@ def index():
     form_html = """
     <form method="post" enctype="multipart/form-data" action="/upload">
       <div>
-        <label for="file">Choose file to upload</label>
+        <label for="file">Choose file to upload. (* Note only .jpg files):</label>
         <input type="file" id="file" name="form_file" accept="image/jpeg"/>
       </div>
       <div>
