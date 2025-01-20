@@ -74,10 +74,12 @@ def list_files():
 """
 
 import os
-from flask import Flask, redirect, request, render_template_string, url_for
+from flask import Flask, redirect, request, render_template_string, url_for, Response
 from werkzeug.utils import secure_filename
 from google.cloud import storage
 import logging
+import io
+
 
 # Configure logging for debugging
 logging.basicConfig(level=logging.DEBUG)
@@ -86,20 +88,20 @@ logging.basicConfig(level=logging.DEBUG)
 app = Flask(__name__)
 
 # Initialize Google Cloud Storage client
-storage_client = storage.Client(project='project1-448316')
-bucket_name = 'project1-447922_cloudbuild'
+storage_client = storage.Client(project='project1-44792')  # Corrected project name
+bucket_name = 'project1-447922_cloudbuild'  # Corrected bucket name
 bucket = storage_client.get_bucket(bucket_name)
 
-ALLOWED_EXTENSIONS = {'jpeg', 'jpg'}
+ALLOWED_EXTENSIONS = {'jpeg', 'jpg', 'png'}
 
 def allowed_file(filename):
    """Check if the file has an allowed extension."""
    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-def list_files():
-   """List all the files in the bucket."""
-   blobs = bucket.list_blobs()
-   return [blob.name for blob in blobs if blob.name.lower().endswith(('.jpeg', '.jpg'))]
+# def list_files():
+#    """List all the files in the bucket."""
+#    blobs = bucket.list_blobs()
+#    return [blob.name for blob in blobs if blob.name.lower().endswith(('.jpeg', '.jpg'))]
 
 def save_file(file):
    """Save the uploaded file to the specified bucket."""
@@ -107,27 +109,27 @@ def save_file(file):
    blob = bucket.blob(filename)
    blob.upload_from_file(file)
    
-def delete_file(filename):
-   """Delete a file from the specified bucket."""
-   blob = bucket.blob(filename)
-   if blob.exists():
-       blob.delete()
-       return True
-   return False
+# def delete_file(filename):
+#    """Delete a file from the specified bucket."""
+#    blob = bucket.blob(filename)
+#    if blob.exists():
+#        blob.delete()
+#        return True
+#    return False
 
 @app.route('/')
 def index():
    """Home page with upload form and list of uploaded files."""
-   files = list_files()
+#    files = list_files()
    index_html = """
    <html>
    <head><title>Upload Files</title></head>
    <body>
-       <h1>Upload Image (JPEG only)</h1>
+       <h1>Upload Image</h1>
        <form method="post" enctype="multipart/form-data" action="/upload">
            <div>
-               <label for="file">Choose file to upload (* NOTE .jpg photos files ONLY*)</label>
-               <input type="file" id="file" name="form_file" accept="image/jpeg">
+               <label for="file">Choose file to upload</label>
+               <input type="file" id="file" name="form_file" accept="image/**">
            </div>
            <div>
                <button>Submit</button>
@@ -136,16 +138,30 @@ def index():
 
        <h2>Uploaded Files:</h2>
        <ul>
-       """
-   # Display list of files with view and delete options
-   for file in files:
-       index_html += f"<li>{file} - <a href='/files/{file}'>View</a> | <a href='/delete/{file}'>DELETE</a></li>"
-   index_html += """
-       </ul>
-   </body>
-   </html>
    """
+   l=all_files()
+   print(len(l))
+   for file in l:
+        index_html += f"""
+            <li>
+                <a href='/files/{file}'>{file}</a>
+            </li>
+        """
+        index_html += """
+        </ul>
+    </body>
+    </html>
+    """
    return index_html
+
+
+def all_files():
+    images = []
+    all_bucket_files = storage_client.list_blobs(bucket_name)
+    for file in all_bucket_files:
+            if file.name.lower().endswith(".jpeg") or file.name.lower().endswith(".jpg") or  file.name.lower().endswith(".png"):
+                images.append(file.name)
+    return images
 
 @app.route('/upload', methods=["POST"])
 def upload():
@@ -156,31 +172,37 @@ def upload():
        return redirect(url_for('index'))
    return 'Invalid file type or upload failed', 400
 
+# def get_file(filename):
+#    """Generates a signed URL for accessing a file from Google Cloud Storage."""
+
 @app.route('/files/<filename>')
 def get_file(filename):
-   """Generates a signed URL for accessing a file from Google Cloud Storage."""
-   blob = bucket.blob(filename)
-   if blob.exists():
-       try:
-           # Generate a signed URL for the file (valid for 3600 seconds, i.e., 1 hour)
-           url = blob.generate_signed_url(expiration=3600, method='GET')
-           app.logger.debug(f"Generated signed URL: {url}")  # Log the generated URL for debugging
-           # Serve the image directly using the signed URL
-           return f'<html><body><img src="{url}" alt="Image"></body></html>'
-       except Exception as e:
-           app.logger.error(f"Error generating signed URL for {filename}: {e}")
-           return f"Error generating signed URL for {filename}: {e}", 500
-   return 'File not found', 404
+    bucket = storage_client.bucket(bucket_name)
+    blob = bucket.blob(filename)
+    file_data = blob.download_as_bytes()
+    return Response(io.BytesIO(file_data), mimetype='image/jpeg')
 
-@app.route('/delete/<filename>')
-def delete(filename):
-   """Deletes a specific file from the specified bucket."""
-   if delete_file(filename):
-       return redirect(url_for('index'))
-   return 'File not found', 404
+#    blob = bucket.blob(filename)
+#    if blob.exists():
+#        try:
+#            # Generate a signed URL for the file (valid for 3600 seconds, i.e., 1 hour)
+#            url = blob.generate_signed_url(expiration=3600, method='GET')
+#            app.logger.debug(f"Generated signed URL: {url}")  # Log the generated URL for debugging
+#            # Serve the image directly using the signed URL
+#            return f'<html><body><img src="{url}" alt="Image"></body></html>'
+#        except Exception as e:
+#            app.logger.error(f"Error generating signed URL for {filename}: {e}")
+#            return f"Error generating signed URL for {filename}: {e}", 500
+#    return 'File not found', 404
+
+# @app.route('/delete/<filename>')
+# def delete(filename):
+#    """Deletes a specific file from the specified bucket."""
+#    if delete_file(filename):
+#        return redirect(url_for('index'))
+#    return 'File not found', 404
 
 if __name__ == '__main__':
    # Use PORT environment variable, default to 8080 if not set
-   port = int(os.getenv("PORT", 8080))  
-   app.run(host='0.0.0.0', port=port)
-
+#    port = int(os.getenv("PORT", 8080))  
+    app.run(host="localhost",port=5060, debug=True)
